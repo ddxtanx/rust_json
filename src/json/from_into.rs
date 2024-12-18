@@ -1,39 +1,39 @@
 use std::collections::HashMap;
 
-use super::JSONValue;
+use super::JSON;
 
-impl From<f64> for JSONValue {
+impl From<f64> for JSON {
     fn from(value: f64) -> Self {
-        JSONValue::Number(value)
+        JSON::Number(value)
     }
 }
 
-impl From<String> for JSONValue {
+impl From<String> for JSON {
     fn from(value: String) -> Self {
-        JSONValue::String(value)
+        JSON::String(value)
     }
 }
 
-impl From<bool> for JSONValue {
+impl From<bool> for JSON {
     fn from(value: bool) -> Self {
-        JSONValue::Bool(value)
+        JSON::Bool(value)
     }
 }
 
-impl From<Vec<JSONValue>> for JSONValue {
-    fn from(value: Vec<JSONValue>) -> Self {
-        JSONValue::Array(value)
+impl From<Vec<JSON>> for JSON {
+    fn from(value: Vec<JSON>) -> Self {
+        JSON::Array(value)
     }
 }
 
-impl From<HashMap<String, JSONValue>> for JSONValue {
-    fn from(value: HashMap<String, JSONValue>) -> Self {
-        JSONValue::Object(value)
+impl From<HashMap<String, JSON>> for JSON {
+    fn from(value: HashMap<String, JSON>) -> Self {
+        JSON::Object(value)
     }
 }
 
-impl From<&str> for JSONValue {
+impl From<&str> for JSON {
     fn from(value: &str) -> Self {
-        JSONValue::String(value.to_string())
+        JSON::String(value.to_string())
     }
 }

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, str::FromStr};
 
-use crate::json::{JSONValue, JSON};
+use crate::json::JSON;
 
 #[derive(Debug)]
 pub enum JSONError {
@@ -27,7 +27,7 @@ enum ParsingHelper {
     Null,
 }
 
-fn parse_partial(tokens: &[ParsingHelper]) -> Result<(JSONValue, &[ParsingHelper]), JSONError> {
+fn parse_partial(tokens: &[ParsingHelper]) -> Result<(JSON, &[ParsingHelper]), JSONError> {
     use ParsingHelper::*;
     if tokens.is_empty() {
         return Err(JSONError::UnexpectedEndOfInput);
@@ -35,10 +35,10 @@ fn parse_partial(tokens: &[ParsingHelper]) -> Result<(JSONValue, &[ParsingHelper
 
     let first = tokens.first().unwrap();
     match first {
-        String(s) => Ok((JSONValue::String(s.clone()), &tokens[1..])),
-        Number(n) => Ok((JSONValue::Number(*n), &tokens[1..])),
-        Bool(b) => Ok((JSONValue::Bool(*b), &tokens[1..])),
-        Null => Ok((JSONValue::Null, &tokens[1..])),
+        String(s) => Ok((JSON::String(s.clone()), &tokens[1..])),
+        Number(n) => Ok((JSON::Number(*n), &tokens[1..])),
+        Bool(b) => Ok((JSON::Bool(*b), &tokens[1..])),
+        Null => Ok((JSON::Null, &tokens[1..])),
         ObjStart => {
             let mut obj = HashMap::new();
             let mut slice: &[ParsingHelper] = &tokens[1..];
@@ -74,7 +74,7 @@ fn parse_partial(tokens: &[ParsingHelper]) -> Result<(JSONValue, &[ParsingHelper
                 obj.insert(key, value);
                 slice = &new_slice[1..];
             }
-            Ok((JSONValue::Object(obj), &slice[1..]))
+            Ok((JSON::Object(obj), &slice[1..]))
         }
         ArrayStart => {
             let mut arr = Vec::new();
@@ -96,13 +96,13 @@ fn parse_partial(tokens: &[ParsingHelper]) -> Result<(JSONValue, &[ParsingHelper
                 arr.push(value);
                 slice = &new_slice[1..];
             }
-            Ok((JSONValue::Array(arr), &slice[1..]))
+            Ok((JSON::Array(arr), &slice[1..]))
         }
         _ => Err(JSONError::ParseError("Unexpected token in partial parse")),
     }
 }
 
-impl FromStr for JSONValue {
+impl FromStr for JSON {
     type Err = JSONError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -250,23 +250,5 @@ impl FromStr for JSONValue {
             return Err(JSONError::ParseError("Unexpected tokens at end of input"));
         }
         Ok(value)
-    }
-}
-
-impl FromStr for JSON {
-    type Err = JSONError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let value = JSONValue::from_str(s)?;
-        match value {
-            JSONValue::Object(obj) => {
-                let mut json = JSON::new();
-                for (k, v) in obj {
-                    json.add_field(&k, v);
-                }
-                Ok(json)
-            }
-            _ => Err(JSONError::ParseError("Expected object")),
-        }
     }
 }

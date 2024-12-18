@@ -1,26 +1,27 @@
-#[cfg(test)]
-use super::*;
+use crate::json::JSON;
+use std::str::FromStr;
 
+#[cfg(test)]
 #[test]
 fn test_arr() {
-    let obj1 = JSONValue::String("hello".to_string());
-    let obj2 = JSONValue::Number(42.0);
-    let obj3 = JSONValue::Bool(true);
-    let arr = JSONValue::Array(vec![obj1, obj2, obj3]);
+    let obj1 = JSON::String("hello".to_string());
+    let obj2 = JSON::Number(42.0);
+    let obj3 = JSON::Bool(true);
+    let arr = JSON::Array(vec![obj1, obj2, obj3]);
     assert_eq!(arr.to_string(), "[\"hello\", 42, true]");
 }
 
 #[test]
 fn test_arr_from_str() {
     let str = "[\"hello mister!\", 42, true]";
-    let arr = JSONValue::from_str(str).unwrap();
+    let arr = JSON::from_str(str).unwrap();
     match arr.at(0) {
-        Some(JSONValue::String(s)) => assert_eq!(s, "hello mister!"),
+        Some(JSON::String(s)) => assert_eq!(s, "hello mister!"),
         _ => panic!("arr[0] is not a string"),
     }
 
     match arr.at(1) {
-        Some(JSONValue::Number(n)) => assert_eq!(*n, 42.0),
+        Some(JSON::Number(n)) => assert_eq!(*n, 42.0),
         _ => panic!("arr[1] is not a number"),
     }
 }
@@ -28,23 +29,23 @@ fn test_arr_from_str() {
 #[test]
 fn test_obj_from_str() {
     let str = r#"{"name": "John", "age": 42, "is_student": false, "jobs": ["student", "teacher", "employee", {"type": "actor", "show": "phantom"}]}"#;
-    let obj = JSONValue::from_str(str).unwrap();
+    let obj = JSON::from_str(str).unwrap();
 
     let name = obj.get("name").unwrap();
     match name {
-        JSONValue::String(s) => assert_eq!(s, "John"),
+        JSON::String(s) => assert_eq!(s, "John"),
         _ => panic!("name is not a string"),
     }
 
     let age = obj.get("age").unwrap();
     match age {
-        JSONValue::Number(n) => assert_eq!(*n, 42.0),
+        JSON::Number(n) => assert_eq!(*n, 42.0),
         _ => panic!("age is not a number"),
     }
 
     let is_student = obj.get("is_student").unwrap();
     match is_student {
-        JSONValue::Bool(b) => assert!(!(*b)),
+        JSON::Bool(b) => assert!(!(*b)),
         _ => panic!("is_student is not a boolean"),
     }
 
@@ -52,31 +53,31 @@ fn test_obj_from_str() {
 
     let job1 = jobs.at(0).unwrap();
     match job1 {
-        JSONValue::String(s) => assert_eq!(s, "student"),
+        JSON::String(s) => assert_eq!(s, "student"),
         _ => panic!("job1 is not a string"),
     }
 
     let job2 = jobs.at(1).unwrap();
     match job2 {
-        JSONValue::String(s) => assert_eq!(s, "teacher"),
+        JSON::String(s) => assert_eq!(s, "teacher"),
         _ => panic!("job2 is not a string"),
     }
 
     let job3 = jobs.at(2).unwrap();
     match job3 {
-        JSONValue::String(s) => assert_eq!(s, "employee"),
+        JSON::String(s) => assert_eq!(s, "employee"),
         _ => panic!("job3 is not a string"),
     }
 
     let job4 = jobs.at(3).unwrap();
 
     match job4.get("type") {
-        Some(JSONValue::String(s)) => assert_eq!(s, "actor"),
+        Some(JSON::String(s)) => assert_eq!(s, "actor"),
         _ => panic!("job4 type is not a string"),
     }
 
     match job4.get("show") {
-        Some(JSONValue::String(s)) => assert_eq!(s, "phantom"),
+        Some(JSON::String(s)) => assert_eq!(s, "phantom"),
         _ => panic!("job4 show is not a string"),
     }
 }
@@ -84,7 +85,79 @@ fn test_obj_from_str() {
 #[test]
 fn test_bad_parse() {
     let str = r#"{"name": "Jo\"hn", [1,2,3]: "asd"}"#;
-    let obj = JSONValue::from_str(str);
+    let obj = JSON::from_str(str);
     println!("{:?}", obj);
     assert!(obj.is_err());
+}
+
+#[test]
+fn test_big() {
+    let file = std::fs::read_to_string("src/tests/users_100k.json").unwrap();
+    let obj = JSON::from_str(&file).unwrap();
+
+    let vec = obj.as_array();
+    assert!(vec.is_some());
+
+    let vec = vec.unwrap();
+    assert_eq!(vec.len(), 100_000);
+
+    for i in 0..100_000 {
+        let user = obj.at(i);
+        assert!(user.is_some());
+        let user = user.unwrap();
+        match user {
+            JSON::Object(_) => {
+                let id = user.get("id").unwrap();
+                match id {
+                    JSON::Number(n) => assert_eq!(*n, i as f64),
+                    _ => panic!("id is not a number"),
+                }
+
+                let name = user.get("name").unwrap();
+                match name {
+                    JSON::String(_) => (),
+                    _ => panic!("name is not a string"),
+                }
+
+                let city = user.get("city").unwrap();
+                match city {
+                    JSON::String(_) => (),
+                    _ => panic!("city is not a string"),
+                }
+
+                let age = user.get("age").unwrap();
+                match age {
+                    JSON::Number(_) => (),
+                    _ => panic!("age is not a number"),
+                }
+
+                let friends = user.get("friends").unwrap();
+                let friends = friends.as_array().unwrap();
+                for friend in friends {
+                    match friend {
+                        JSON::Object(_) => {
+                            let name = friend.get("name").unwrap();
+                            match name {
+                                JSON::String(_) => (),
+                                _ => panic!("friend name is not a string"),
+                            }
+
+                            let hobbies = friend.get("hobbies").unwrap();
+                            let hobbies = hobbies.as_array().unwrap();
+                            for hobby in hobbies {
+                                match hobby {
+                                    JSON::String(_) => (),
+                                    _ => panic!("hobby is not a string"),
+                                }
+                            }
+                        }
+                        _ => panic!("friend is not an object"),
+                    }
+                }
+            }
+            _ => panic!("user is not an object"),
+        }
+    }
+    let should_fail = obj.at(100_000);
+    assert!(should_fail.is_none());
 }

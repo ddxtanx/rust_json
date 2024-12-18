@@ -6,88 +6,88 @@ use std::{
 };
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum JSONValue {
+pub enum JSON {
     Null,
     Bool(bool),
     Number(f64),
     String(String),
-    Array(Vec<JSONValue>),
-    Object(HashMap<String, JSONValue>),
+    Array(Vec<JSON>),
+    Object(HashMap<String, JSON>),
 }
 
-impl JSONValue {
+impl JSON {
     pub fn as_bool(&self) -> Option<bool> {
         match self {
-            JSONValue::Bool(b) => Some(*b),
+            JSON::Bool(b) => Some(*b),
             _ => None,
         }
     }
 
     pub fn as_number(&self) -> Option<f64> {
         match self {
-            JSONValue::Number(n) => Some(*n),
+            JSON::Number(n) => Some(*n),
             _ => None,
         }
     }
 
     pub fn as_string(&self) -> Option<&str> {
         match self {
-            JSONValue::String(s) => Some(s),
+            JSON::String(s) => Some(s),
             _ => None,
         }
     }
 
-    pub fn as_array(&self) -> Option<&Vec<JSONValue>> {
+    pub fn as_array(&self) -> Option<&Vec<JSON>> {
         match self {
-            JSONValue::Array(a) => Some(a),
+            JSON::Array(a) => Some(a),
             _ => None,
         }
     }
 
-    pub fn as_object(&self) -> Option<&HashMap<String, JSONValue>> {
+    pub fn as_object(&self) -> Option<&HashMap<String, JSON>> {
         match self {
-            JSONValue::Object(o) => Some(o),
+            JSON::Object(o) => Some(o),
             _ => None,
         }
     }
 
-    pub fn get(&self, key: &str) -> Option<&JSONValue> {
+    pub fn get(&self, key: &str) -> Option<&JSON> {
         match self {
-            JSONValue::Object(o) => o.get(key),
+            JSON::Object(o) => o.get(key),
             _ => None,
         }
     }
 
-    pub fn get_mut(&mut self, key: &str) -> Option<&mut JSONValue> {
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut JSON> {
         match self {
-            JSONValue::Object(o) => o.get_mut(key),
+            JSON::Object(o) => o.get_mut(key),
             _ => None,
         }
     }
 
-    pub fn at(&self, index: usize) -> Option<&JSONValue> {
+    pub fn at(&self, index: usize) -> Option<&JSON> {
         match self {
-            JSONValue::Array(a) => a.get(index),
+            JSON::Array(a) => a.get(index),
             _ => None,
         }
     }
 
-    pub fn at_mut(&mut self, index: usize) -> Option<&mut JSONValue> {
+    pub fn at_mut(&mut self, index: usize) -> Option<&mut JSON> {
         match self {
-            JSONValue::Array(a) => a.get_mut(index),
+            JSON::Array(a) => a.get_mut(index),
             _ => None,
         }
     }
 }
 
-impl Display for JSONValue {
+impl Display for JSON {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
-            JSONValue::Null => write!(f, "null"),
-            JSONValue::Bool(b) => write!(f, "{}", b),
-            JSONValue::Number(n) => write!(f, "{}", n),
-            JSONValue::String(s) => write!(f, "\"{}\"", s),
-            JSONValue::Array(a) => {
+            JSON::Null => write!(f, "null"),
+            JSON::Bool(b) => write!(f, "{}", b),
+            JSON::Number(n) => write!(f, "{}", n),
+            JSON::String(s) => write!(f, "\"{}\"", s),
+            JSON::Array(a) => {
                 write!(f, "[")?;
                 for (i, v) in a.iter().enumerate() {
                     if i != 0 {
@@ -97,7 +97,7 @@ impl Display for JSONValue {
                 }
                 write!(f, "]")
             }
-            JSONValue::Object(o) => {
+            JSON::Object(o) => {
                 write!(f, "{{")?;
                 for (i, (k, v)) in o.iter().enumerate() {
                     if i != 0 {
@@ -108,32 +108,5 @@ impl Display for JSONValue {
                 write!(f, "}}")
             }
         }
-    }
-}
-pub struct JSON {
-    fields: HashMap<String, JSONValue>,
-}
-
-impl Display for JSON {
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, "{}", JSONValue::Object(self.fields.clone()))
-    }
-}
-
-impl JSON {
-    pub fn new() -> Self {
-        JSON {
-            fields: HashMap::new(),
-        }
-    }
-
-    pub fn add_field(&mut self, key: &str, value: JSONValue) {
-        self.fields.insert(key.to_string(), value);
-    }
-}
-
-impl Default for JSON {
-    fn default() -> Self {
-        Self::new()
     }
 }
