@@ -1,3 +1,5 @@
+pub mod from_into;
+
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter, Result},
