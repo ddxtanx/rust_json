@@ -20,20 +20,31 @@ impl From<bool> for JSON {
     }
 }
 
-impl From<Vec<JSON>> for JSON {
-    fn from(value: Vec<JSON>) -> Self {
-        JSON::Array(value)
-    }
-}
-
-impl From<HashMap<String, JSON>> for JSON {
-    fn from(value: HashMap<String, JSON>) -> Self {
-        JSON::Object(value)
-    }
-}
-
 impl From<&str> for JSON {
     fn from(value: &str) -> Self {
         JSON::String(value.to_string())
+    }
+}
+
+impl<U, V> From<HashMap<U, V>> for JSON
+where
+    U: Into<String> + Eq + std::hash::Hash,
+    V: Into<JSON>,
+{
+    fn from(value: HashMap<U, V>) -> Self {
+        let mut map = HashMap::new();
+        for (key, val) in value {
+            map.insert(key.into(), val.into());
+        }
+        JSON::Object(map)
+    }
+}
+
+impl<U> From<Vec<U>> for JSON
+where
+    U: Into<JSON>,
+{
+    fn from(value: Vec<U>) -> Self {
+        JSON::Array(value.into_iter().map(|v| v.into()).collect())
     }
 }
