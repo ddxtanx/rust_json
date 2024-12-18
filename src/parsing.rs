@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 use crate::json::JSON;
 
@@ -7,6 +7,22 @@ pub enum JSONError {
     UnexpectedCharacter(char, usize, usize),
     UnexpectedEndOfInput,
     ParseError(&'static str),
+}
+
+impl Display for JSONError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            JSONError::UnexpectedCharacter(c, l, p) => {
+                write!(
+                    f,
+                    "Unexpected character '{}' at line {} position {}",
+                    c, l, p
+                )
+            }
+            JSONError::UnexpectedEndOfInput => write!(f, "Unexpected end of input"),
+            JSONError::ParseError(s) => write!(f, "Parse error: {}", s),
+        }
+    }
 }
 
 #[derive(Debug)]

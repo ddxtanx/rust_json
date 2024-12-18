@@ -2,7 +2,7 @@ pub mod from_into;
 
 use std::{
     collections::HashMap,
-    fmt::{Display, Formatter, Result},
+    fmt::{Display, Formatter},
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -13,6 +13,10 @@ pub enum JSON {
     String(String),
     Array(Vec<JSON>),
     Object(HashMap<String, JSON>),
+}
+
+pub enum JSONError {
+    InsertError,
 }
 
 impl JSON {
@@ -78,10 +82,30 @@ impl JSON {
             _ => None,
         }
     }
+
+    pub fn insert(&mut self, key: String, value: JSON) -> Result<(), JSONError> {
+        match self {
+            JSON::Object(o) => {
+                o.insert(key, value);
+                Ok(())
+            }
+            _ => Err(JSONError::InsertError),
+        }
+    }
+
+    pub fn push(&mut self, value: JSON) -> Result<(), JSONError> {
+        match self {
+            JSON::Array(a) => {
+                a.push(value);
+                Ok(())
+            }
+            _ => Err(JSONError::InsertError),
+        }
+    }
 }
 
 impl Display for JSON {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             JSON::Null => write!(f, "null"),
             JSON::Bool(b) => write!(f, "{}", b),
