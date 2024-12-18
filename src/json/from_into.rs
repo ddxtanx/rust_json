@@ -14,6 +14,12 @@ impl From<String> for JSON {
     }
 }
 
+impl From<&String> for JSON {
+    fn from(value: &String) -> Self {
+        JSON::String(value.clone())
+    }
+}
+
 impl From<bool> for JSON {
     fn from(value: bool) -> Self {
         JSON::Bool(value)
