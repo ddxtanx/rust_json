@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, str::FromStr};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc, str::FromStr};
 
 use crate::json::JSON;
 
@@ -118,153 +118,287 @@ fn parse_partial(tokens: &[ParsingHelper]) -> Result<(JSON, &[ParsingHelper]), J
     }
 }
 
+fn tokenize_input(s: &str) -> Result<Vec<&str>, JSONError> {
+    let mut tokens: Vec<&str> = Vec::new();
+    let control_chars = ['{', '}', '[', ']', ':', ','];
+
+    let mut escaped = false;
+    let mut in_string = false;
+    let mut start_idx = 0;
+
+    for (i, c) in s.chars().enumerate() {
+        if !in_string && c.is_whitespace() {
+            start_idx = i + 1;
+            continue;
+        }
+
+        if c == '\\' {
+            if !in_string {
+                return Err(JSONError::ParseError("Unexpected escape character"));
+            }
+            if escaped {
+                escaped = false;
+            } else {
+                escaped = true;
+                continue;
+            }
+        }
+
+        if c == '"' {
+            if !in_string {
+                in_string = true;
+                start_idx = i;
+            } else {
+                in_string = false;
+                tokens.push(&s[start_idx..i + 1]);
+                start_idx = i + 1;
+            }
+            continue;
+        }
+
+        if in_string {
+            continue;
+        }
+
+        if control_chars.contains(&c) {
+            if start_idx < i {
+                tokens.push(&s[start_idx..i]);
+            }
+            tokens.push(&s[i..i + 1]);
+            start_idx = i + 1;
+        }
+    }
+
+    Ok(tokens)
+}
+
+enum NodeMetadata<'a> {
+    Key(&'a str),
+    Object,
+    Array,
+    Literal,
+    NeedKey,
+}
+
+struct Node<'a> {
+    children: Vec<Rc<RefCell<Node<'a>>>>,
+    metadata: NodeMetadata<'a>,
+    value: Option<JSON>,
+}
+
+impl<'a> Node<'a> {
+    fn get_children(&self) -> &Vec<Rc<RefCell<Node<'a>>>> {
+        &self.children
+    }
+
+    fn add_child(&mut self, node: Node<'a>) -> Rc<RefCell<Node<'a>>> {
+        let wrapped = Rc::new(RefCell::new(node));
+        self.children.push(wrapped.clone());
+        wrapped
+    }
+
+    fn new(metadata: NodeMetadata, value: Option<JSON>) -> Node {
+        Node {
+            children: Vec::new(),
+            metadata,
+            value,
+        }
+    }
+}
+
+struct Tree<'a> {
+    head: Node<'a>,
+}
+
+impl<'a> Tree<'a> {
+    fn get_head(&self) -> &Node<'a> {
+        &self.head
+    }
+}
+
+struct TreeIterator<'a> {
+    stack: Vec<Rc<RefCell<Node<'a>>>>,
+}
+
+impl<'a> TreeIterator<'a> {
+    fn new(tree: Tree<'a>) -> TreeIterator<'a> {
+        let top = tree.head;
+        let vec = vec![Rc::new(RefCell::new(top))];
+        TreeIterator { stack: vec }
+    }
+}
+
+impl<'a> Iterator for TreeIterator<'a> {
+    type Item = Rc<RefCell<Node<'a>>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let top = self.stack.pop();
+        if top.is_none() {
+            return top;
+        }
+
+        loop {
+            let new_top = self.stack.last().unwrap().clone();
+            let top_node = (*new_top).borrow();
+            let children = top_node.get_children();
+            if children.is_empty() {
+                break;
+            }
+            self.stack.extend_from_slice(children);
+        }
+
+        top
+    }
+}
+
+impl<'a> IntoIterator for Tree<'a> {
+    type Item = Rc<RefCell<Node<'a>>>;
+    type IntoIter = TreeIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        TreeIterator::new(self)
+    }
+}
+
 impl FromStr for JSON {
     type Err = JSONError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut stack: Vec<ParsingHelper> = Vec::new();
-        let mut tokens: Vec<String> = Vec::new();
-        let control_chars = ['{', '}', '[', ']', ':', ','];
-        let mut temp = String::new();
+        //TODO: Finish collection at bottom, and reason how NeedKey is consumed
+        let tokens = tokenize_input(s)?;
 
-        let mut escaped = false;
-        let mut in_string = false;
-
-        for c in s.chars() {
-            if !in_string && c.is_whitespace() {
-                continue;
-            }
-
-            if c == '\\' {
-                if !in_string {
-                    return Err(JSONError::ParseError("Unexpected escape character"));
-                }
-                if escaped {
-                    escaped = false;
-                    temp.push(c);
-                } else {
-                    escaped = true;
-                    continue;
-                }
-            }
-
-            if c == '"' {
-                temp.push(c);
-                if !in_string {
-                    in_string = true;
-                } else {
-                    in_string = false;
-                    tokens.push(temp.clone());
-                    temp.clear();
-                }
-                continue;
-            }
-
-            if in_string {
-                temp.push(c);
-                continue;
-            }
-
-            if control_chars.contains(&c) {
-                if !temp.is_empty() {
-                    tokens.push(temp.clone());
-                    temp.clear();
-                }
-                tokens.push(c.to_string());
-            } else {
-                temp.push(c);
-            }
-        }
-
-        let mut current_scope = Vec::new();
-        for token in tokens {
-            match token.as_str() {
+        let nodes = Vec::new();
+        let current_scope = Vec::new();
+        for (i, token) in tokens.iter().enumerate() {
+            match *token {
                 "{" => {
-                    stack.push(ParsingHelper::ObjStart);
-                    current_scope.push(ParsingHelper::ObjStart);
-                    stack.push(ParsingHelper::KeyStart);
+                    let obj_node = Node::new(NodeMetadata::Object, None);
+                    let elem_node = Node::new(NodeMetadata::NeedKey, None);
+                    let elem_node = obj_node.add_child(elem_node);
+                    current_scope.push(Rc::new(RefCell::new(obj_node)));
+                    current_scope.push(elem_node);
                 }
                 ":" => {
                     let scope = current_scope.last();
-                    match scope {
-                        Some(ParsingHelper::ObjStart) => {
-                            stack.push(ParsingHelper::KeyEnd);
-                            stack.push(ParsingHelper::ValueStart);
-                        }
-                        _ => {
-                            return Err(JSONError::ParseError("Unexpected colon"));
-                        }
+                    if scope.is_none() {
+                        return Err(JSONError::ParseError("Unexpected colon"));
+                    }
+
+                    let scope = scope.unwrap();
+                    let node = (*scope).borrow();
+                    match node.metadata {
+                        NodeMetadata::Key(_) => (),
+                        _ => return Err(JSONError::ParseError("Unexpected colon")),
                     }
                 }
                 "}" => {
                     let scope = current_scope.pop();
-                    match scope {
-                        Some(ParsingHelper::ObjStart) => {
-                            stack.push(ParsingHelper::ValueEnd);
-                            stack.push(ParsingHelper::ObjEnd);
-                        }
-                        _ => {
-                            return Err(JSONError::ParseError("Unexpected end of object"));
-                        }
+                    if scope.is_none() {
+                        return Err(JSONError::ParseError("Unexpected end curly brace"));
                     }
+
+                    let scope = scope.unwrap();
+                    let node = (*scope).borrow();
+
+                    match node.metadata {
+                        NodeMetadata::Object => (),
+                        _ => return Err(JSONError::ParseError("Unexpected end curly brace")),
+                    }
+
+                    nodes.push(scope);
                 }
                 "[" => {
-                    stack.push(ParsingHelper::ArrayStart);
-                    current_scope.push(ParsingHelper::ArrayStart);
-                    stack.push(ParsingHelper::ElementStart);
+                    let arr_node = Node::new(NodeMetadata::Array, None);
+                    current_scope.push(Rc::new(RefCell::new(arr_node)));
                 }
                 "," => {
                     let scope = current_scope.last();
                     match scope {
-                        Some(ParsingHelper::ObjStart) => {
-                            stack.push(ParsingHelper::ValueEnd);
-                            stack.push(ParsingHelper::KeyStart);
-                        }
-                        Some(ParsingHelper::ArrayStart) => {
-                            stack.push(ParsingHelper::ElementEnd);
-                            stack.push(ParsingHelper::ElementStart);
-                        }
-                        _ => {
-                            return Err(JSONError::ParseError("Unexpected comma"));
-                        }
+                        Some(node_wr) => match (*node_wr).borrow().metadata {
+                            NodeMetadata::Array => (),
+                            NodeMetadata::Object => {
+                                let node = Node::new(NodeMetadata::NeedKey, None);
+                                current_scope.push(Rc::new(RefCell::new(node)));
+                            }
+                            _ => return Err(JSONError::ParseError("Unexpected comma")),
+                        },
+                        _ => return Err(JSONError::ParseError("Unexpected comma")),
                     }
                 }
                 "]" => {
                     let scope = current_scope.pop();
                     match scope {
-                        Some(ParsingHelper::ArrayStart) => {
-                            stack.push(ParsingHelper::ElementEnd);
-                            stack.push(ParsingHelper::ArrayEnd);
-                        }
-                        _ => {
-                            return Err(JSONError::ParseError("Unexpected end of array"));
-                        }
+                        None => return Err(JSONError::ParseError("Unexpected end square brace")),
+                        Some(rc) => match (*rc).borrow().metadata {
+                            NodeMetadata::Array => {
+                                nodes.push(scope.unwrap());
+                            }
+                            _ => return Err(JSONError::ParseError("Unexpected end square brace")),
+                        },
                     }
                 }
-                "true" => {
-                    stack.push(ParsingHelper::Bool(true));
-                }
-                "false" => {
-                    stack.push(ParsingHelper::Bool(false));
-                }
-                "null" => {
-                    stack.push(ParsingHelper::Null);
-                }
-                _ => {
-                    if let Ok(num) = token.parse::<f64>() {
-                        stack.push(ParsingHelper::Number(num));
-                    } else {
-                        let sub = &token[1..token.len() - 1];
-                        stack.push(ParsingHelper::String(sub.to_string()));
+                st => {
+                    let parent = current_scope.last();
+                    let (json_val, error_str) = match st {
+                        "true" => (JSON::Bool(true), "Unexpected boolean literal"),
+                        "false" => (JSON::Bool(false), "Unexpected boolean literal"),
+                        "null" => (JSON::Null, "Unexpected null value"),
+                        _ => {
+                            if let Ok(num) = st.parse::<f64>() {
+                                (JSON::Number(num), "Unexpected number")
+                            } else {
+                                (JSON::String(st.to_string()), "Unexpected string")
+                            }
+                        }
+                    };
+
+                    match parent {
+                        None => return Err(JSONError::ParseError(error_str)),
+                        Some(rc) => {
+                            let node = (*rc).borrow_mut();
+                            match (json_val, node.metadata) {
+                                (
+                                    JSON::Bool(_) | JSON::Number(_) | JSON::Null,
+                                    NodeMetadata::Key(_) | NodeMetadata::Array,
+                                )
+                                | (
+                                    JSON::String(_),
+                                    NodeMetadata::NeedKey
+                                    | NodeMetadata::Key(_)
+                                    | NodeMetadata::Array,
+                                ) => {
+                                    let new_node = Node::new(NodeMetadata::Literal, Some(json_val));
+                                    let new_node = node.add_child(new_node);
+                                    nodes.push(new_node);
+                                }
+                                _ => return Err(JSONError::ParseError(error_str)),
+                            }
+                        }
                     }
                 }
             }
         }
 
-        let (value, remaining) = parse_partial(&stack)?;
-        if !remaining.is_empty() {
-            return Err(JSONError::ParseError("Unexpected tokens at end of input"));
+        let tree_head = current_scope.pop();
+        if tree_head.is_none() {
+            return Err(JSONError::ParseError(
+                "Extremely unexpected parsing error, everything consumed?",
+            ));
         }
-        Ok(value)
+        let tree_head = tree_head.unwrap();
+
+        let parent_node: Node = (*tree_head).into_inner();
+        let tree = Tree { head: parent_node };
+
+        for node in tree {
+            let n = (*node).borrow_mut();
+            if n.value.is_some() {
+                continue;
+            }
+
+            match n.metadata {
+                Key(_) => {}
+            }
+        }
     }
 }
