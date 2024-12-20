@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc, str::FromStr};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc, str::FromStr, vec::Drain};
 
 use crate::json::JSON;
 
@@ -81,11 +81,9 @@ fn tokenize_input(s: &str) -> Result<Vec<&str>, JSONError> {
 
 #[derive(Debug)]
 enum NodeMetadata<'a> {
-    Key(&'a str),
-    Object,
+    Object(Vec<&'a str>),
     Array,
     Literal,
-    NeedKey,
     Default,
 }
 #[derive(Debug)]
@@ -184,22 +182,9 @@ fn add_to_top<'a>(
             let mut top_node = (*rc).borrow_mut();
             match (&cur_node.metadata, &top_node.metadata) {
                 (
-                    NodeMetadata::Object | NodeMetadata::Array | NodeMetadata::Literal,
-                    NodeMetadata::Key(_),
+                    NodeMetadata::Object(_) | NodeMetadata::Array | NodeMetadata::Literal,
+                    NodeMetadata::Object(_) | NodeMetadata::Array | NodeMetadata::Default,
                 ) => {
-                    top_node.add_child_wrapped(child_node.clone());
-                    drop(top_node);
-                    vect.pop();
-                    Ok(())
-                }
-                (
-                    NodeMetadata::Object | NodeMetadata::Array | NodeMetadata::Literal,
-                    NodeMetadata::Object | NodeMetadata::Array | NodeMetadata::Default,
-                ) => {
-                    top_node.add_child_wrapped(child_node.clone());
-                    Ok(())
-                }
-                (NodeMetadata::Key(_) | NodeMetadata::NeedKey, NodeMetadata::Object) => {
                     top_node.add_child_wrapped(child_node.clone());
                     Ok(())
                 }
@@ -220,13 +205,12 @@ impl FromStr for JSON {
         let top_node = Node::new(NodeMetadata::Default, None);
         let top_node_ref = Rc::new(RefCell::new(top_node));
         let mut current_scope: Vec<Rc<RefCell<Node>>> = vec![top_node_ref.clone()];
+        let mut next_is_key = false;
         drop(top_node_ref);
         for token in tokens.iter() {
             match *token {
                 "{" => {
-                    let mut obj_node = Node::new(NodeMetadata::Object, None);
-                    let elem_node = Node::new(NodeMetadata::NeedKey, None);
-                    let elem_node = obj_node.add_child(elem_node);
+                    let mut obj_node = Node::new(NodeMetadata::Object(Vec::new()), None);
                     let wrapped_obj_node = Rc::new(RefCell::new(obj_node));
                     add_to_top(
                         &mut current_scope,
@@ -234,7 +218,7 @@ impl FromStr for JSON {
                         "Unexpected start of object",
                     )?;
                     current_scope.push(wrapped_obj_node);
-                    current_scope.push(elem_node);
+                    next_is_key = true;
                 }
                 ":" => {
                     let scope = current_scope.last();
@@ -245,9 +229,10 @@ impl FromStr for JSON {
                     let scope = scope.unwrap();
                     let node = (*scope).borrow();
                     match node.metadata {
-                        NodeMetadata::Key(_) => (),
+                        NodeMetadata::Object(_) => (),
                         _ => return Err(JSONError::ParseError("Unexpected colon")),
                     }
+                    next_is_key = false;
                 }
                 "}" => {
                     let scope = current_scope.pop();
@@ -259,7 +244,7 @@ impl FromStr for JSON {
                     let node = (*scope).borrow();
 
                     match node.metadata {
-                        NodeMetadata::Object => (),
+                        NodeMetadata::Object(_) => (),
                         _ => return Err(JSONError::ParseError("Unexpected end curly brace")),
                     }
                 }
@@ -275,21 +260,16 @@ impl FromStr for JSON {
                 }
                 "," => {
                     let scope = current_scope.last();
-                    let new_node = match scope {
+                    match scope {
                         Some(node_wr) => match (*node_wr).borrow().metadata {
-                            NodeMetadata::Array => None,
-                            NodeMetadata::Object => {
-                                let node = Node::new(NodeMetadata::NeedKey, None);
-                                Some(Rc::new(RefCell::new(node)))
+                            NodeMetadata::Array => (),
+                            NodeMetadata::Object(_) => {
+                                next_is_key = true;
                             }
                             _ => return Err(JSONError::ParseError("Unexpected comma")),
                         },
                         _ => return Err(JSONError::ParseError("Unexpected comma")),
                     };
-                    if let Some(new_node) = new_node {
-                        add_to_top(&mut current_scope, new_node.clone(), "Unexpected comma")?;
-                        current_scope.push(new_node);
-                    }
                 }
                 "]" => {
                     let scope = current_scope.pop();
@@ -318,22 +298,31 @@ impl FromStr for JSON {
                         }
                     };
 
-                    let parent = current_scope.last();
-                    match parent {
-                        None => (),
-                        Some(rc) => {
-                            let mut node = (*rc).borrow_mut();
-                            match (&node.metadata, &json_val) {
-                                (NodeMetadata::NeedKey, JSON::String(_)) => {
-                                    node.metadata = NodeMetadata::Key(&st[1..st.len() - 1]);
-                                    continue;
+                    if next_is_key {
+                        let parent = current_scope.last();
+                        match parent {
+                            None => (),
+                            Some(rc) => {
+                                let mut node = (*rc).borrow_mut();
+                                match (&node.metadata, &json_val) {
+                                    (NodeMetadata::Object(_), JSON::String(_)) => {
+                                        let md = &mut node.metadata;
+                                        if let NodeMetadata::Object(keys) = md {
+                                            keys.push(&st[1..st.len() - 1]);
+                                        }
+                                        continue;
+                                    }
+                                    (NodeMetadata::Object(_), _) => {
+                                        return Err(JSONError::ParseError(
+                                            "Non string used as object key",
+                                        ))
+                                    }
+                                    _ => {
+                                        return Err(JSONError::ParseError(
+                                            "Tried to add key to non-object",
+                                        ))
+                                    }
                                 }
-                                (NodeMetadata::NeedKey, _) => {
-                                    return Err(JSONError::ParseError(
-                                        "Non string used as object key",
-                                    ))
-                                }
-                                _ => {}
                             }
                         }
                     }
@@ -368,8 +357,8 @@ impl FromStr for JSON {
                 continue;
             }
 
-            match n.metadata {
-                NodeMetadata::Key(_) | NodeMetadata::Default => {
+            match &n.metadata {
+                NodeMetadata::Default => {
                     let children: &mut Vec<Rc<RefCell<Node<'_>>>> = n.get_children_mut();
                     if children.len() != 1 {
                         return Err(JSONError::ParseError(
@@ -403,28 +392,28 @@ impl FromStr for JSON {
                     }
                     n.value = Some(JSON::Array(json_vs))
                 }
-                NodeMetadata::Object => {
+                NodeMetadata::Object(keys) => {
+                    let immut_children = n.get_children();
+                    if immut_children.len() != keys.len() {
+                        return Err(JSONError::ParseError("Unkeyed child of object"));
+                    }
+                    let mut key_strs: Vec<String> = keys.iter().map(|s| String::from(*s)).collect();
                     let children = n.get_children_mut();
                     let mut json_ob = HashMap::new();
                     let mut err = false;
                     let mut err_str = "";
-                    children.drain(..).for_each(|child| {
+                    let drain_iter = children.drain(..);
+                    let zipped_iter = drain_iter.zip(key_strs.drain(..));
+                    zipped_iter.for_each(|(child, key)| {
                         let child_node = Rc::into_inner(child)
                             .expect("Should be only child")
                             .into_inner();
-                        match (child_node.metadata, child_node.value) {
-                            (NodeMetadata::Key(s), Some(js)) => {
-                                json_ob.insert(String::from(s), js);
-                            }
-                            (_, None) => {
-                                err = true;
-                                err_str = "Unparsed child of object";
-                            }
-                            (_, _) => {
-                                err = true;
-                                err_str = "Non Keyed child of object";
-                            }
+                        if child_node.value.is_none() {
+                            err = true;
+                            err_str = "Unparsed child of object";
                         }
+                        let child_val = child_node.value.unwrap();
+                        json_ob.insert(key, child_val);
                     });
 
                     if err {
@@ -434,7 +423,6 @@ impl FromStr for JSON {
                     n.value = Some(JSON::Object(json_ob))
                 }
                 NodeMetadata::Literal => continue,
-                _ => return Err(JSONError::ParseError("Unexpected node in parse tree")),
             }
 
             if Rc::strong_count(&node) == 1 {
