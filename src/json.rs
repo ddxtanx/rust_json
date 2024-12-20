@@ -15,7 +15,7 @@ pub enum JSON {
     Object(HashMap<String, JSON>),
 }
 
-pub enum JSONError {
+pub enum JSONMethodError {
     InsertError,
 }
 
@@ -83,23 +83,23 @@ impl JSON {
         }
     }
 
-    pub fn insert(&mut self, key: String, value: JSON) -> Result<(), JSONError> {
+    pub fn insert(&mut self, key: String, value: JSON) -> Result<(), JSONMethodError> {
         match self {
             JSON::Object(o) => {
                 o.insert(key, value);
                 Ok(())
             }
-            _ => Err(JSONError::InsertError),
+            _ => Err(JSONMethodError::InsertError),
         }
     }
 
-    pub fn push(&mut self, value: JSON) -> Result<(), JSONError> {
+    pub fn push(&mut self, value: JSON) -> Result<(), JSONMethodError> {
         match self {
             JSON::Array(a) => {
                 a.push(value);
                 Ok(())
             }
-            _ => Err(JSONError::InsertError),
+            _ => Err(JSONMethodError::InsertError),
         }
     }
 }
