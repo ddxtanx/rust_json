@@ -374,7 +374,7 @@ impl FromStr for JSON {
                 }
                 NodeMetadata::Array => {
                     let children = n.get_children_mut();
-                    let mut json_vs = Vec::new();
+                    let mut json_vs = Vec::with_capacity(children.len());
                     let mut err = false;
 
                     children.drain(..).for_each(|child| {
@@ -397,9 +397,10 @@ impl FromStr for JSON {
                     if immut_children.len() != keys.len() {
                         return Err(JSONError::ParseError("Unkeyed child of object"));
                     }
+                    let mut json_ob = HashMap::with_capacity(immut_children.len());
+
                     let mut key_strs: Vec<String> = keys.iter().map(|s| String::from(*s)).collect();
                     let children = n.get_children_mut();
-                    let mut json_ob = HashMap::new();
                     let mut err = false;
                     let mut err_str = "";
                     let drain_iter = children.drain(..);
