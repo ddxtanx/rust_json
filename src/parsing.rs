@@ -146,23 +146,22 @@ impl<'a> Iterator for TreeIterator<'a> {
     type Item = Rc<RefCell<Node<'a>>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let top = self.stack.last_mut();
+        let top = self.stack.last();
         if top.is_none() {
             return None;
         }
 
         loop {
             let (top_node_rc, childed) = self.stack.last_mut().expect("Should never be None");
-            let mut top_node = (*top_node_rc).borrow_mut();
-            let children = top_node.get_children_mut();
+            let rc_clone = top_node_rc.clone();
+            let top_node = rc_clone.borrow();
+            let children = top_node.get_children();
             if *childed || children.is_empty() {
                 break;
             }
-
             *childed = true;
-            let falsed_children: Vec<(Rc<RefCell<Node>>, bool)> =
-                children.iter().map(|n| (n.clone(), false)).collect();
-            drop(top_node);
+
+            let falsed_children = children.iter().map(|n| (n.clone(), false));
             self.stack.extend(falsed_children);
         }
 
@@ -210,7 +209,7 @@ impl FromStr for JSON {
         for token in tokens.iter() {
             match *token {
                 "{" => {
-                    let mut obj_node = Node::new(NodeMetadata::Object(Vec::new()), None);
+                    let obj_node = Node::new(NodeMetadata::Object(Vec::new()), None);
                     let wrapped_obj_node = Rc::new(RefCell::new(obj_node));
                     add_to_top(
                         &mut current_scope,
