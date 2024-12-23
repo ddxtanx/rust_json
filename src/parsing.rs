@@ -25,7 +25,8 @@ impl Display for JSONError {
     }
 }
 
-fn tokenize_input(s: &str) -> Result<Vec<&str>, JSONError> {
+fn tokenize_input(s: &str) -> Result<(Vec<&str>, usize), JSONError> {
+    let mut commas = 0;
     let mut tokens: Vec<&str> = Vec::new();
     let control_chars = ['{', '}', '[', ']', ':', ','];
 
@@ -68,6 +69,9 @@ fn tokenize_input(s: &str) -> Result<Vec<&str>, JSONError> {
         }
 
         if control_chars.contains(&c) {
+            if c == ',' {
+                commas += 1;
+            }
             if start_idx < i {
                 tokens.push(&s[start_idx..i]);
             }
@@ -76,7 +80,7 @@ fn tokenize_input(s: &str) -> Result<Vec<&str>, JSONError> {
         }
     }
 
-    Ok(tokens)
+    Ok((tokens, commas))
 }
 
 #[derive(Debug)]
@@ -194,7 +198,11 @@ fn add_to_top<'a>(
     }
 }
 
-fn tree_from_tokens(tokens: Vec<&str>) -> Result<Rc<RefCell<Node>>, JSONError> {
+fn tree_from_tokens(
+    tokens: Vec<&str>,
+    node_size_hint: Option<usize>,
+) -> Result<Vec<Rc<RefCell<Node>>>, JSONError> {
+    let mut nodes = Vec::with_capacity(node_size_hint.unwrap_or(0));
     let top_node = Node::new(NodeMetadata::Default, None);
     let top_node_ref = Rc::new(RefCell::new(top_node));
     let mut current_scope: Vec<Rc<RefCell<Node>>> = vec![top_node_ref.clone()];
@@ -210,6 +218,7 @@ fn tree_from_tokens(tokens: Vec<&str>) -> Result<Rc<RefCell<Node>>, JSONError> {
                     wrapped_obj_node.clone(),
                     "Unexpected start of object",
                 )?;
+                nodes.push(wrapped_obj_node.clone());
                 current_scope.push(wrapped_obj_node);
                 next_is_key = true;
             }
@@ -249,6 +258,7 @@ fn tree_from_tokens(tokens: Vec<&str>) -> Result<Rc<RefCell<Node>>, JSONError> {
                     wrapped_arr_node.clone(),
                     "Unexpected start of array",
                 )?;
+                nodes.push(wrapped_arr_node.clone());
                 current_scope.push(wrapped_arr_node);
             }
             "," => {
@@ -321,6 +331,7 @@ fn tree_from_tokens(tokens: Vec<&str>) -> Result<Rc<RefCell<Node>>, JSONError> {
                 }
                 let node = Node::new(NodeMetadata::Literal, Some(json_val));
                 let wrapped_node = Rc::new(RefCell::new(node));
+                nodes.push(wrapped_node.clone());
                 add_to_top(&mut current_scope, wrapped_node, error_str)?;
             }
         }
@@ -337,12 +348,12 @@ fn tree_from_tokens(tokens: Vec<&str>) -> Result<Rc<RefCell<Node>>, JSONError> {
             "Extremely unexpected parsing error, everything consumed?",
         ));
     }
-    let tree_head = tree_head.unwrap();
-    Ok(tree_head)
+    Ok(nodes)
 }
 
-fn consume_tree(head: Rc<RefCell<Node>>) -> Result<JSON, JSONError> {
-    let mut iter = TreeIterator::new(head);
+fn consume_tree(mut node_order: Vec<Rc<RefCell<Node>>>) -> Result<JSON, JSONError> {
+    node_order.reverse();
+    let mut iter = node_order.drain(..);
     let parsed_json = loop {
         let node = iter
             .next()
@@ -450,9 +461,9 @@ impl FromStr for JSON {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         //TODO: Finish collection at bottom, and reason how NeedKey is consumed
-        let tokens = tokenize_input(s)?;
+        let (tokens, commas) = tokenize_input(s)?;
 
-        let tree_head = tree_from_tokens(tokens)?;
-        consume_tree(tree_head)
+        let nodes = tree_from_tokens(tokens, Some(commas))?;
+        consume_tree(nodes)
     }
 }
