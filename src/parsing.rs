@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc, str::FromStr, vec::Drain};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc, str::FromStr};
 
 use crate::json::JSON;
 
@@ -106,12 +106,6 @@ impl<'a> Node<'a> {
         &mut self.children
     }
 
-    fn add_child(&mut self, node: Node<'a>) -> Rc<RefCell<Node<'a>>> {
-        let wrapped = Rc::new(RefCell::new(node));
-        self.children.push(wrapped.clone());
-        wrapped
-    }
-
     fn add_child_wrapped(&mut self, node: Rc<RefCell<Node<'a>>>) {
         self.children.push(node)
     }
@@ -132,44 +126,6 @@ impl<'a> Default for Node<'a> {
             metadata: NodeMetadata::Default,
             value: None,
         }
-    }
-}
-
-struct TreeIterator<'a> {
-    stack: Vec<(Rc<RefCell<Node<'a>>>, bool)>,
-}
-
-impl<'a> TreeIterator<'a> {
-    fn new(tree: Rc<RefCell<Node<'a>>>) -> TreeIterator<'a> {
-        let vec = vec![(tree, false)];
-        TreeIterator { stack: vec }
-    }
-}
-
-impl<'a> Iterator for TreeIterator<'a> {
-    type Item = Rc<RefCell<Node<'a>>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let top = self.stack.last();
-        if top.is_none() {
-            return None;
-        }
-
-        loop {
-            let (top_node_rc, childed) = self.stack.last_mut().expect("Should never be None");
-            let rc_clone = top_node_rc.clone();
-            let top_node = rc_clone.borrow();
-            let children = top_node.get_children();
-            if *childed || children.is_empty() {
-                break;
-            }
-            *childed = true;
-
-            let falsed_children = children.iter().map(|n| (n.clone(), false));
-            self.stack.extend(falsed_children);
-        }
-
-        self.stack.pop().map(|(n, _)| n)
     }
 }
 
@@ -460,7 +416,6 @@ impl FromStr for JSON {
     type Err = JSONError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        //TODO: Finish collection at bottom, and reason how NeedKey is consumed
         let (tokens, commas) = tokenize_input(s)?;
 
         let nodes = tree_from_tokens(tokens, Some(commas))?;
