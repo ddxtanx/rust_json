@@ -56,34 +56,44 @@ impl<'a> TokenIterator<'a> {
     }
 }
 
+const WHITESPACE: [u8; 4] = [b'\x20', b'\x09', b'\x0a', b'\x09'];
+const CONTROL_CHARS: [u8; 6] = [b'{', b'}', b'[', b']', b':', b','];
+
 impl<'a> Iterator for TokenIterator<'a> {
     type Item = Result<&'a str, JSONError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut start_point = self.pos;
-        for char in self.s[self.pos..].chars() {
+        for char in self.s[self.pos..].bytes() {
             let old_line = self.line;
             let old_char = self.char;
-            if char == '\n' {
+            if char == b'\n' {
                 self.line += 1;
                 self.char = 1;
             } else {
                 self.char += 1;
             }
 
-            if !self.in_string && char.is_whitespace() {
+            let escaped = self.escaped;
+            if self.escaped {
+                self.escaped = false;
+            }
+
+            if !self.in_string && WHITESPACE.contains(&char) {
                 self.pos += 1;
                 start_point = self.pos;
                 continue;
             }
 
-            if char == '\\' {
+            if char == b'\\' {
                 if !self.in_string {
                     return Some(Err(JSONError::UnexpectedCharacter(
-                        char, old_line, old_char,
+                        char as char,
+                        old_line,
+                        old_char,
                     )));
                 }
-                if self.escaped {
+                if escaped {
                     self.escaped = false;
                 } else {
                     self.escaped = true;
@@ -92,7 +102,7 @@ impl<'a> Iterator for TokenIterator<'a> {
                 }
             }
 
-            if char == '"' {
+            if char == b'"' && !escaped {
                 if !self.in_string {
                     self.in_string = true;
                     start_point = self.pos;
@@ -110,7 +120,7 @@ impl<'a> Iterator for TokenIterator<'a> {
                 continue;
             }
 
-            if CONTROL_CHARS.contains(&char) {
+            if !escaped && CONTROL_CHARS.contains(&char) {
                 if start_point < self.pos {
                     return Some(Ok(&self.s[start_point..self.pos]));
                 }
@@ -127,8 +137,6 @@ impl<'a> Iterator for TokenIterator<'a> {
         None
     }
 }
-
-static CONTROL_CHARS: [char; 6] = ['{', '}', '[', ']', ':', ','];
 
 #[derive(Debug)]
 enum NodeMetadata<'a> {

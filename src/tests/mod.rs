@@ -161,3 +161,43 @@ fn test_big() {
     let should_fail = obj.at(100_000);
     assert!(should_fail.is_none());
 }
+
+#[test]
+fn large_complex() {
+    let file = std::fs::read_to_string("src/tests/large-complex.json").unwrap();
+    let json = JSON::from_str(&file).unwrap();
+
+    let len: usize = 11351;
+
+    match &json {
+        JSON::Array(arr) => assert_eq!(arr.len(), len),
+        _ => {
+            panic!("Obj is not array")
+        }
+    }
+
+    for i in 0..len {
+        let obj = json.at(i);
+        assert!(obj.is_some());
+        let obj = obj.unwrap();
+        match &obj {
+            JSON::Object(_) => (),
+            _ => panic!("Expected object, didnt get"),
+        }
+
+        assert!(obj.get("id").is_some());
+        assert!(obj.get("type").is_some());
+
+        let actor = obj.get("actor");
+        assert!(actor.is_some());
+        let actor = actor.unwrap();
+
+        match &actor {
+            JSON::Object(_) => (),
+            _ => panic!("Expected object, didnt get"),
+        }
+
+        assert!(actor.get("id").is_some());
+        assert!(actor.get("login").is_some());
+    }
+}
