@@ -25,63 +25,110 @@ impl Display for JSONError {
     }
 }
 
-fn tokenize_input(s: &str) -> Result<(Vec<&str>, usize), JSONError> {
-    let mut commas = 0;
-    let mut tokens: Vec<&str> = Vec::new();
-    let control_chars = ['{', '}', '[', ']', ':', ','];
+struct TokenIterator<'a> {
+    s: &'a str,
+    line: usize,
+    char: usize,
+    pos: usize,
 
-    let mut escaped = false;
-    let mut in_string = false;
-    let mut start_idx = 0;
+    escaped: bool,
+    in_string: bool,
+}
 
-    for (i, c) in s.chars().enumerate() {
-        if !in_string && c.is_whitespace() {
-            start_idx = i + 1;
-            continue;
-        }
-
-        if c == '\\' {
-            if !in_string {
-                return Err(JSONError::ParseError("Unexpected escape character"));
-            }
-            if escaped {
-                escaped = false;
-            } else {
-                escaped = true;
-                continue;
-            }
-        }
-
-        if c == '"' {
-            if !in_string {
-                in_string = true;
-                start_idx = i;
-            } else {
-                in_string = false;
-                tokens.push(&s[start_idx..i + 1]);
-                start_idx = i + 1;
-            }
-            continue;
-        }
-
-        if in_string {
-            continue;
-        }
-
-        if control_chars.contains(&c) {
-            if c == ',' {
-                commas += 1;
-            }
-            if start_idx < i {
-                tokens.push(&s[start_idx..i]);
-            }
-            tokens.push(&s[i..i + 1]);
-            start_idx = i + 1;
+impl<'a> TokenIterator<'a> {
+    fn new(s: &'a str) -> TokenIterator<'a> {
+        TokenIterator {
+            s,
+            line: 1,
+            char: 1,
+            pos: 0,
+            escaped: false,
+            in_string: false,
         }
     }
 
-    Ok((tokens, commas))
+    fn get_line(&self) -> usize {
+        self.line
+    }
+
+    fn get_char(&self) -> usize {
+        self.char
+    }
 }
+
+impl<'a> Iterator for TokenIterator<'a> {
+    type Item = Result<&'a str, JSONError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut start_point = self.pos;
+        for char in self.s[self.pos..].chars() {
+            let old_line = self.line;
+            let old_char = self.char;
+            if char == '\n' {
+                self.line += 1;
+                self.char = 1;
+            } else {
+                self.char += 1;
+            }
+
+            if !self.in_string && char.is_whitespace() {
+                self.pos += 1;
+                start_point = self.pos;
+                continue;
+            }
+
+            if char == '\\' {
+                if !self.in_string {
+                    return Some(Err(JSONError::UnexpectedCharacter(
+                        char, old_line, old_char,
+                    )));
+                }
+                if self.escaped {
+                    self.escaped = false;
+                } else {
+                    self.escaped = true;
+                    self.pos += 1;
+                    continue;
+                }
+            }
+
+            if char == '"' {
+                if !self.in_string {
+                    self.in_string = true;
+                    start_point = self.pos;
+                    self.pos += 1;
+                    continue;
+                } else {
+                    self.in_string = false;
+                    self.pos += 1;
+                    return Some(Ok(&self.s[start_point..self.pos]));
+                }
+            }
+
+            if self.in_string {
+                self.pos += 1;
+                continue;
+            }
+
+            if CONTROL_CHARS.contains(&char) {
+                if start_point < self.pos {
+                    return Some(Ok(&self.s[start_point..self.pos]));
+                }
+                self.pos += 1;
+                return Some(Ok(&self.s[start_point..self.pos]));
+            }
+            self.pos += 1;
+        }
+
+        if self.in_string {
+            return Some(Err(JSONError::UnexpectedEndOfInput));
+        }
+
+        None
+    }
+}
+
+static CONTROL_CHARS: [char; 6] = ['{', '}', '[', ']', ':', ','];
 
 #[derive(Debug)]
 enum NodeMetadata<'a> {
@@ -154,18 +201,20 @@ fn add_to_top<'a>(
     }
 }
 
-fn tree_from_tokens(
-    tokens: Vec<&str>,
-    node_size_hint: Option<usize>,
-) -> Result<Vec<Rc<RefCell<Node>>>, JSONError> {
-    let mut nodes = Vec::with_capacity(node_size_hint.unwrap_or(0));
+//Complete and utter guess, don't want to compute exact number of commas in JSON object
+
+const BYTES_PER_OBJECT_APPROX: usize = 10;
+fn tree_from_tokens(s: &str) -> Result<Vec<Rc<RefCell<Node>>>, JSONError> {
+    let approx_tokens = (s.len() as f64 / BYTES_PER_OBJECT_APPROX as f64).ceil() as usize;
+    let tokens = TokenIterator::new(s);
+    let mut nodes = Vec::with_capacity(approx_tokens + 1);
     let top_node = Node::new(NodeMetadata::Default, None);
     let top_node_ref = Rc::new(RefCell::new(top_node));
     let mut current_scope: Vec<Rc<RefCell<Node>>> = vec![top_node_ref.clone()];
     let mut next_is_key = false;
     drop(top_node_ref);
-    for token in tokens.iter() {
-        match *token {
+    for token in tokens {
+        match token? {
             "{" => {
                 let obj_node = Node::new(NodeMetadata::Object(Vec::new()), None);
                 let wrapped_obj_node = Rc::new(RefCell::new(obj_node));
@@ -416,9 +465,7 @@ impl FromStr for JSON {
     type Err = JSONError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (tokens, commas) = tokenize_input(s)?;
-
-        let nodes = tree_from_tokens(tokens, Some(commas))?;
+        let nodes = tree_from_tokens(s)?;
         consume_tree(nodes)
     }
 }
