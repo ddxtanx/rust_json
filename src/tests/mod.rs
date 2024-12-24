@@ -1,5 +1,6 @@
 use crate::json::JSON;
 use std::str::FromStr;
+use std::time::Instant;
 
 #[cfg(test)]
 #[test]
@@ -86,14 +87,16 @@ fn test_obj_from_str() {
 fn test_bad_parse() {
     let str = r#"{"name": "Jo\"hn", [1,2,3]: "asd"}"#;
     let obj = JSON::from_str(str);
-    println!("{:?}", obj);
     assert!(obj.is_err());
 }
 
 #[test]
 fn test_big() {
     let file = std::fs::read_to_string("src/tests/users_100k.json").unwrap();
-    let obj = JSON::from_str(&file).unwrap();
+    let start = Instant::now();
+    let obj = JSON::from_str(&file).expect("JSON should be valid");
+    let elapsed = start.elapsed();
+    println!("Parsed large users json in {:.2?}", elapsed);
 
     let vec = obj.as_array();
     assert!(vec.is_some());
@@ -165,7 +168,10 @@ fn test_big() {
 #[test]
 fn large_complex() {
     let file = std::fs::read_to_string("src/tests/large-complex.json").unwrap();
-    let json = JSON::from_str(&file).unwrap();
+    let start = Instant::now();
+    let json = JSON::from_str(&file).expect("JSON should be valid");
+    let elapsed = start.elapsed();
+    println!("Parsed large complex JSON in {:.2?}", elapsed);
 
     let len: usize = 11351;
 
